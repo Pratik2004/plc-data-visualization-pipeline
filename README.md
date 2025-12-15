@@ -1,4 +1,3 @@
-# plc-data-visualization-pipeline
 # PLC Data Visualization Pipeline
 
 **Phase:** 1 (Local MVP)  
