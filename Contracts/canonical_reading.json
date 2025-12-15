@@ -1,0 +1,69 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Canonical PLC Reading",
+  "description": "Normalized message format from PLC collector to backend ingestion API",
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp with timezone (e.g., 2025-12-15T10:00:00Z)"
+    },
+    "tag_id": {
+      "type": "string",
+      "description": "Unique tag identifier in format asset_id:tag_name (e.g., 'asset_001:motor_speed')"
+    },
+    "asset_id": {
+      "type": "string",
+      "description": "Asset identifier (e.g., 'MOTOR_01')"
+    },
+    "tag_name": {
+      "type": "string",
+      "description": "Human-readable tag name (e.g., 'motor_speed_rpm')"
+    },
+    "value": {
+      "type": ["number", "string", "null"],
+      "description": "Scaled value (after applying scale + offset)"
+    },
+    "value_raw": {
+      "type": ["integer", "null"],
+      "description": "Raw value from PLC before scaling (for traceability)"
+    },
+    "unit": {
+      "type": "string",
+      "description": "Engineering unit (e.g., 'rpm', 'kW', '°C')"
+    },
+    "data_type": {
+      "type": "string",
+      "enum": ["FLOAT", "INT32", "BOOLEAN", "STRING"],
+      "description": "PLC data type"
+    },
+    "quality": {
+      "type": "string",
+      "enum": ["GOOD", "UNCERTAIN", "BAD"],
+      "description": "OPC UA-style quality code"
+    },
+    "source": {
+      "type": "string",
+      "description": "Data source identifier (e.g., 'plc_primary', 'plc_backup', 'manual_entry')"
+    },
+    "sequence": {
+      "type": "integer",
+      "description": "Monotonic sequence number for detecting out-of-order messages"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Protocol-specific fields (scale, offset, interpolated flag, etc.)"
+    }
+  },
+  "required": [
+    "timestamp",
+    "tag_id",
+    "asset_id",
+    "tag_name",
+    "value",
+    "quality",
+    "source",
+    "sequence"
+  ]
+}
