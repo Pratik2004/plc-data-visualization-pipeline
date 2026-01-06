@@ -1,0 +1,22 @@
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: plc_postgres
+    environment:
+      POSTGRES_USER: plcuser
+      POSTGRES_PASSWORD: plcpassword_dev
+      POSTGRES_DB: plcdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plcuser -d plcdata"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
