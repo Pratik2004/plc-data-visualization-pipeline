@@ -10,7 +10,7 @@
 - **Protocols:** OPC UA (primary), fallback to Modbus TCP
 
 ## Project Inputs
-- **PLC Protocol:** OPC UA (or Modbus TCP)
+- **PLC Protocol:** Modbus TCP
 - **Tag Count:** 50–100 tags
 - **Sampling Rate:** 1 Hz average
 - **Retention:** 90 days local, 1 year cloud (Phase 3)
