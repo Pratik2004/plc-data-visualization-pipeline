@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Float, DateTime, Boolean, ForeignKey, Text
+from sqlalchemy import String, Integer, Float, DateTime, Boolean, ForeignKey, Text, Index, Column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -81,3 +81,20 @@ class Reading(Base):
     sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     reading_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    __table_args__ = (
+        Index("idx_readings_tag_time", "tagid", "time", unique=True),
+        Index("idx_readings_time", "time"),
+    )
+
+class Taglatest(Base):
+    __tablename__ = "taglatest"
+
+    tagid = Column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    time = Column(DateTime(timezone=True), nullable=False)
+    valuenumeric = Column(Float)
+    valuetext = Column(Text)
+    quality = Column(String(20))
+    source = Column(String(100))
+    sequence = Column(Integer)
+    updatedat = Column(DateTime(timezone=True), default=datetime.utcnow)
+
