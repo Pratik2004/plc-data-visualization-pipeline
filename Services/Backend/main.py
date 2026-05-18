@@ -48,6 +48,13 @@ def create_test_asset(db: Session = Depends(get_db)):
 
 @app.post("/api/v1/bulk-readings")
 def post_bulk_readings(req: BulkReadingsRequest, db: Session = Depends(get_db)):
+    print("DEBUG full request =", req.model_dump())
+
+    for item in req.readings:
+        print("DEBUG incoming tagid =", item.tagid)
+        print("DEBUG incoming value =", item.value)
+        print("DEBUG incoming valueraw =", item.valueraw)
+        print("DEBUG incoming sequence =", item.sequence)
     results = ingest_readings_batch(db, [r.model_dump() for r in req.readings])
 
     return {
@@ -61,3 +68,28 @@ def list_test_assets(db: Session = Depends(get_db)):
     """Test endpoint: list assets."""
     assets = db.query(Asset).all()
     return [{"id": str(a.id), "code": a.code, "name": a.name} for a in assets]
+
+@app.get("/api/v1/tags/{tagid}/latest")
+def gettaglatest(tagid: str, db: Session = Depends(get_db)):
+    from models import Taglatest, Tag
+
+    latest = db.query(Taglatest).filter(Taglatest.tagid == tagid).first()
+
+    if not latest:
+        return {"status": "error", "message": "No data for this tag"}
+
+    tag = db.query(Tag).filter(Tag.id == tagid).first()
+
+    return {
+        "status": "success",
+        "data": {
+            "tagid": str(latest.tagid),
+            "tagname": tag.name if tag else "Unknown",
+            "unit": tag.unit if tag else "",
+            "currentvalue": latest.valuenumeric,
+            "quality": latest.quality,
+            "lastupdated": latest.updatedat.isoformat() if latest.updatedat else None,
+            "source": latest.source,
+            "time": latest.time.isoformat() if latest.time else None
+        }
+    }

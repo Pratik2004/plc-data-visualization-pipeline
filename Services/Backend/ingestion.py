@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
 
@@ -8,81 +8,181 @@ from schemas import CanonicalReadingRequest
 
 logger = logging.getLogger(__name__)
 
-def ingest_reading(db: Session, canonical: CanonicalReadingRequest) -> Optional[Reading]:
-    # Find or create asset
-    asset = db.query(Asset).filter(Asset.code == canonical.assetid).first()
-    if not asset:
-        asset = Asset(
-            code=canonical.assetid,
-            name=f"Auto-created asset {canonical.assetid}",
-            assettype="auto"
-        )
-        db.add(asset)
-        db.commit()
-        db.refresh(asset)
 
-    # Find or create tag
-    tag = db.query(Tag).filter(Tag.code == canonical.tagid).first()
-    if not tag:
-        tag = Tag(
-            code=canonical.tagid,
-            assetid=asset.id,
-            name=canonical.tagname,
-            datatype=canonical.datatype.value,
-            unit=canonical.unit
-        )
-        db.add(tag)
-        db.commit()
-        db.refresh(tag)
+def _normalize_key(value: str) -> str:
+    return value.strip()
 
-    last_reading = (
-        db.query(Reading)
-        .filter(Reading.tagid == tag.id)
-        .order_by(Reading.sequence.desc())
-        .first()
+
+def _get_or_create_asset(db: Session, asset_code: str) -> Asset:
+    asset_code = _normalize_key(asset_code)
+
+    asset = db.query(Asset).filter(Asset.code == asset_code).first()
+    if asset:
+        return asset
+
+    asset = Asset(
+        code=asset_code,
+        name=f"Auto-created asset {asset_code}",
+        assettype="auto",
     )
+    db.add(asset)
+    db.flush()
+    logger.info("Auto-created asset code=%s id=%s", asset.code, asset.id)
+    return asset
 
-    if last_reading and canonical.sequence <= last_reading.sequence:
-        logger.warning(
-            "Out-of-order reading detected: current sequence %s <= last %s. Skipping.",
-            canonical.sequence,
-            last_reading.sequence,
-        )
-        return None
 
-    existing = (
-        db.query(Reading)
-        .filter(Reading.tagid == tag.id)
-        .filter(Reading.time == canonical.timestamp)
-        .first()
+def _get_or_create_tag(db: Session, asset: Asset, canonical: CanonicalReadingRequest) -> Tag:
+    tag_code = _normalize_key(canonical.tagid)
+
+    tag = db.query(Tag).filter(Tag.code == tag_code).first()
+    if tag:
+        return tag
+
+    tag = Tag(
+        code=tag_code,
+        assetid=asset.id,
+        name=canonical.tagname,
+        datatype=canonical.datatype.value if hasattr(canonical.datatype, "value") else str(canonical.datatype),
+        unit=canonical.unit,
     )
-    if existing:
-        logger.warning("Duplicate reading skipped tagid=%s time=%s", canonical.tagid, canonical.timestamp)
-        return None
+    db.add(tag)
+    db.flush()
+    logger.info("Auto-created tag code=%s id=%s assetid=%s", tag.code, tag.id, tag.assetid)
+    return tag
+
+
+def _compute_final_value(tag: Tag, canonical: CanonicalReadingRequest) -> Optional[float]:
+    if canonical.value is not None:
+        return float(canonical.value)
 
     if canonical.valueraw is not None:
-        scaled_value = float(canonical.valueraw) * float(tag.scale or 1.0) + float(tag.offset or 0.0)
-    else:
-        scaled_value = canonical.value
+        scale = float(tag.scale or 1.0)
+        offset = float(tag.offset or 0.0)
+        return float(canonical.valueraw) * scale + offset
 
-    reading = Reading(
-        tagid=tag.id,
-        time=canonical.timestamp,
-        valuenumeric=scaled_value,
-        valuetext=None,
-        valueraw=canonical.valueraw,
-        quality=canonical.quality.value,
-        source=canonical.source,
-        sequence=canonical.sequence,
-        metadata=canonical.metadata,
+    return None
+
+
+def ingest_reading(db: Session, canonical: CanonicalReadingRequest) -> Optional[Reading]:
+    """
+    Ingest one canonical reading.
+
+    Important mapping:
+    - canonical.tagid: external tag code from PLC/canonical payload
+    - Tag.code: external tag code in DB
+    - Tag.id: internal DB UUID primary key
+    - Reading.tagid: foreign key to Tag.id
+
+    This keeps DB primary keys stable and internal, while allowing external systems
+    to send business identifiers.
+    """
+    canonical.assetid = _normalize_key(canonical.assetid)
+    canonical.tagid = _normalize_key(canonical.tagid)
+
+    logger.info(
+        "Ingest start asset_code=%s tag_code=%s timestamp=%s sequence=%s",
+        canonical.assetid,
+        canonical.tagid,
+        canonical.timestamp,
+        canonical.sequence,
     )
-    db.add(reading)
-    db.commit()
-    db.refresh(reading)
-    return reading
+
+    try:
+        asset = _get_or_create_asset(db, canonical.assetid)
+        tag = _get_or_create_tag(db, asset, canonical)
+
+        # Optional safety: if tag already exists but belongs to a different asset,
+        # fail fast instead of silently reassigning.
+        if str(tag.assetid) != str(asset.id):
+            raise ValueError(
+                f"Tag code '{tag.code}' already exists but belongs to assetid={tag.assetid}, "
+                f"not assetid={asset.id}"
+            )
+
+        last_reading = (
+            db.query(Reading)
+            .filter(Reading.tagid == tag.id)
+            .order_by(Reading.sequence.desc())
+            .first()
+        )
+
+        if (
+            last_reading is not None
+            and last_reading.sequence is not None
+            and canonical.sequence <= last_reading.sequence
+        ):
+            logger.warning(
+                "Out-of-order reading skipped tag_code=%s tag_id=%s current_sequence=%s last_sequence=%s",
+                tag.code,
+                tag.id,
+                canonical.sequence,
+                last_reading.sequence,
+            )
+            return None
+
+        existing = (
+            db.query(Reading)
+            .filter(Reading.tagid == tag.id, Reading.time == canonical.timestamp)
+            .first()
+        )
+        if existing is not None:
+            logger.warning(
+                "Duplicate reading skipped tag_code=%s tag_id=%s time=%s",
+                tag.code,
+                tag.id,
+                canonical.timestamp,
+            )
+            return None
+
+        final_value = _compute_final_value(tag, canonical)
+
+        reading = Reading(
+            tagid=tag.id,
+            time=canonical.timestamp,
+            valuenumeric=final_value,
+            valuetext=None,
+            valueraw=canonical.valueraw,
+            quality=canonical.quality.value if hasattr(canonical.quality, "value") else str(canonical.quality),
+            source=canonical.source,
+            sequence=canonical.sequence,
+            metadata=canonical.metadata or {},
+        )
+
+        db.add(reading)
+        db.commit()
+        db.refresh(reading)
+
+        logger.info(
+            "Reading ingested successfully external_tag_code=%s db_tag_id=%s reading_time=%s value=%s",
+            tag.code,
+            tag.id,
+            reading.time,
+            reading.valuenumeric,
+        )
+        return reading
+
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Ingestion failed asset_code=%s tag_code=%s timestamp=%s",
+            canonical.assetid,
+            canonical.tagid,
+            canonical.timestamp,
+        )
+        raise
+
 
 def ingest_readings_batch(db: Session, readings: List[Dict[str, Any]]) -> Dict[str, Any]:
-    results = {"success": 0, "failed": 0, "errors": []}
+    """
+    Ingest a batch of canonical readings.
+
+    Returns a result summary. One bad message does not stop the whole batch.
+    """
+    results: Dict[str, Any] = {
+        "success": 0,
+        "failed": 0,
+        "errors": [],
+    }
 
     for msg in readings:
         try:
@@ -90,9 +190,14 @@ def ingest_readings_batch(db: Session, readings: List[Dict[str, Any]]) -> Dict[s
             reading = ingest_reading(db, canonical)
             if reading is not None:
                 results["success"] += 1
-        except Exception as e:
+        except Exception as exc:
             results["failed"] += 1
-            results["errors"].append({"tagid": msg.get("tagid"), "error": str(e)})
-            db.rollback()
+            results["errors"].append(
+                {
+                    "tagid": msg.get("tagid"),
+                    "timestamp": msg.get("timestamp"),
+                    "error": str(exc),
+                }
+            )
 
     return results

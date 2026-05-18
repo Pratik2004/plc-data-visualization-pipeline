@@ -1,12 +1,13 @@
-
 services:
   postgres:
-    image: postgres:15-alpine
+    image: timescale/timescaledb:latest-pg15
     container_name: plc_postgres
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb"]
     environment:
       POSTGRES_USER: plcuser
       POSTGRES_PASSWORD: plcpassword_dev
       POSTGRES_DB: plcdata
+      TIMESCALEDB_TELEMETRY: "off"
     ports:
       - "5432:5432"
     volumes:
@@ -17,6 +18,22 @@ services:
       timeout: 5s
       retries: 10
     restart: unless-stopped
-
+  backend:
+    build:
+      context: ./Services/Backend
+    container_name: plc_backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://plcuser:plcpassword_dev@postgres:5432/plcdata
+      BACKEND_HOST: 0.0.0.0
+      BACKEND_PORT: 8000
+    working_dir: /app
+    volumes:
+      - ./Services/Backend:/app
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
 volumes:
   postgres_data:
