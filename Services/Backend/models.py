@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import String, Integer, Float, DateTime, Boolean, ForeignKey, Text, Index, Column
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
+#from db import Base
 
 class Base(DeclarativeBase):
     pass
@@ -63,7 +63,7 @@ class Tag(Base):
     updatedat: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     asset: Mapped["Asset"] = relationship(back_populates="tags")
-
+    readings: Mapped[list["Reading"]] = relationship(back_populates="tag", cascade="all, delete-orphan")
 
 class Reading(Base):
     __tablename__ = "readings"
@@ -81,20 +81,21 @@ class Reading(Base):
     sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     reading_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
+    tag: Mapped["Tag"] = relationship(back_populates="readings")    
     __table_args__ = (
         Index("idx_readings_tag_time", "tagid", "time", unique=True),
         Index("idx_readings_time", "time"),
     )
 
-class Taglatest(Base):
+class TagLatest(Base):
     __tablename__ = "taglatest"
 
-    tagid = Column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
-    time = Column(DateTime(timezone=True), nullable=False)
-    valuenumeric = Column(Float)
-    valuetext = Column(Text)
-    quality = Column(String(20))
-    source = Column(String(100))
-    sequence = Column(Integer)
-    updatedat = Column(DateTime(timezone=True), default=datetime.utcnow)
+    tagid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True)
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    valuenumeric: Mapped[float | None] = mapped_column(Float, nullable=True)
+    valuetext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quality: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    source: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sequence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    updatedat: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)
 

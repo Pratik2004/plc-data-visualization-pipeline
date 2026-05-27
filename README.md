@@ -7,7 +7,7 @@
 - **Edge Collector:** Raspberry Pi running Python async OPC UA client
 - **Backend:** FastAPI + PostgreSQL + TimescaleDB (local)
 - **Frontend:** React 18 + TanStack Table
-- **Protocols:** OPC UA (primary), fallback to Modbus TCP
+- **Protocols:** Modbus TCP
 
 ## Project Inputs
 - **PLC Protocol:** Modbus TCP
