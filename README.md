@@ -17,4 +17,24 @@
 - **Retention:** 90 days local, 1 year cloud (Phase 3)
 - **Backend Location:** Local PC
 
-## Quick Start (will be completed during implementation)
+## Quick Start (Docker-only backend)
+
+Use Docker Compose to start the stack and run backend scripts from inside the backend container. Do not run backend scripts from the local Windows venv.
+
+Start the services:
+
+docker compose up -d --build
+
+docker compose ps
+
+docker compose logs -f backend
+
+Run demo data seeding inside the backend container:
+
+docker compose exec backend python scripts/seed_dev_data.py
+
+If you need to run another backend script, run it inside the backend container, for example:
+
+docker compose exec backend python seed_sync.py
+
+docker compose exec backend python scripts/seed_sync.py
