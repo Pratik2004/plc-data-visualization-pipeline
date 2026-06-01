@@ -20,9 +20,33 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     """Upgrade schema."""
-    pass
+    op.execute("CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE")
+    
+    # Drop the serial ID primary key to allow time-based partitioning
+    op.execute("ALTER TABLE readings DROP CONSTRAINT readings_pkey CASCADE")
+    
+    # Add a composite primary key that includes the time column (required for hypertable)
+    op.execute("ALTER TABLE readings ADD PRIMARY KEY (time, tagid)")
+    
+    # Create the hypertable
+    op.execute("SELECT create_hypertable('readings', 'time', if_not_exists => TRUE)")
+    
+    # Enable compression
+    op.execute("ALTER TABLE readings SET (timescaledb.compress, timescaledb.compress_segmentby = 'tagid')")
+    
+    # Add compression policy
+    op.execute("SELECT add_compression_policy('readings', INTERVAL '30 days', if_not_exists => true)")
 
 
 def downgrade() -> None:
     """Downgrade schema."""
-    pass
+    # Safe downgrade that checks if operations exist
+    op.execute("""
+        DO $$
+        BEGIN
+            PERFORM remove_compression_policy('readings', if_not_exists => true);
+        EXCEPTION WHEN undefined_function THEN
+            NULL;
+        END
+        $$;
+    """)

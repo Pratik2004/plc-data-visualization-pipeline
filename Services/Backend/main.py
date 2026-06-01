@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, func, and_, or_, case
 from fastapi.middleware.cors import CORSMiddleware
 from db import get_db
 from models import Reading, Tag, Asset
@@ -23,7 +23,11 @@ app = FastAPI(
 # CORS is required so the React UI can call the API from another port later.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:3000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -107,14 +111,22 @@ def get_readings(
     totime: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
 ):
-    sort_columns = {
+    sort_map = {
         "time": Reading.time,
-        "valuenumeric": Reading.valuenumeric,
-        "quality": Reading.quality,
+        "value": Reading.valuenumeric,
+        "quality": case(
+            (Reading.quality.ilike("good"), 1),
+            (Reading.quality.ilike("uncertain"), 2),
+            (Reading.quality.ilike("bad"), 3),
+            else_=4,
+        ),
     }
 
-    if sortby not in sort_columns:
-        raise HTTPException(status_code=400, detail=f"Invalid sortby: {sortby}")
+    if sortby not in sort_map:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid sortby: {sortby}. Allowed: time, value, quality"
+        )
 
     if sortorder.upper() not in {"ASC", "DESC"}:
         raise HTTPException(status_code=400, detail=f"Invalid sortorder: {sortorder}")
@@ -169,12 +181,12 @@ def get_readings(
             )
         )
     totalcount = query.count()
-    sort_column = sort_columns[sortby]
+    sort_expr = sort_map[sortby]
 
-    if sortorder.upper() == "ASC":
-        query = query.order_by(sort_column.asc())
+    if sortorder.upper() == "DESC":
+        query = query.order_by(sort_expr.desc())
     else:
-        query = query.order_by(sort_column.desc())   
+        query = query.order_by(sort_expr.asc())
 
     offset = (page - 1) * pagesize
     rows = query.offset(offset).limit(pagesize).all() 
